@@ -1,0 +1,225 @@
+---
+title: "Analisis Runtun Waktu Project Akhir"
+output: html_notebook
+---
+
+Analisa data nilai Ekspor Indonesia
+
+1. Install Library yang diperlukan
+```{r}
+library(timeSeries)
+library(forecast)
+library(tseries)
+library(dplyr)
+library(readxl)
+library(lmtest)
+```
+
+2. Import Data
+```{r}
+DataEkspor <- read_excel("C:/Users/bhayu/Downloads/Data Nilai Ekspor Indonesia tahun 2015-2022.xlsx")
+DataEkspor
+```
+
+3. Cleaning Data (Mengambil data yang dibutuhkan dan mengubah data menjadi timeseries)
+```{r}
+#Hilangkan kolom tahun
+x <- DataEkspor[,-1]
+#Transpose Nilai
+x1 <- t(x)
+#Mengubah format list menjadi Numeric
+DataEkspor1 <- as.numeric(x1)
+#Mengubah menjadi data Time Series
+DataEskporTS <- ts(DataEkspor1, frequency = 12, start=c(2015,1), end=c(2022,11))
+DataEskporTS
+```
+
+4. Visualisasi data dan pengecekan data
+```{r}
+summary(DataEskporTS)
+is.ts(DataEskporTS)
+plot.ts(DataEskporTS)
+```
+5. Akan di cek apakah data Stasioner? Dilakukan dengan uji Dicky-Fuller
+   H0 = Data non-stationer
+   H1 = Data Stasioner
+   a = 0,05 dan p-value = 0.9591, karena p-value > a maka Terima H0 (Data non-s)
+```{r}
+adf.test(DataEskporTS)
+```
+   *Jadi Data belum Stasioner
+
+6. Pengecekan Plot ACF dan PACF pada orde ke-0
+```{r}
+#Plot ACF orde ke-0
+acf(DataEskporTS,lag.max= 100, main="ACF Data Ekspor")
+pacf(DataEskporTS,lag.max= 100, main="PACF Data Ekspor")
+```
+7. Dikarenakan data belum stasioner, dilakukan Transformasi Box-Cox agar Varians menjadi Stasioner (lambda negatif sehingga harus di transformasi)
+```{r}
+trans <- BoxCox.lambda(DataEskporTS)
+trans
+trans.DE<- BoxCox(DataEskporTS, lambda= trans)
+trans.DE
+plot.ts(trans.DE)
+```
+```{r}
+BoxCox.lambda(trans.DE)
+```
+ *Sudah stasioner dalam varians karena lambda mendekati 1.
+ 
+8. Dekomposisi Data
+```{r}
+#Plot Dekomposisi Data
+DE.stl<-stl(DataEskporTS, s.window = "periodic")
+library(ggplot2)
+library(forecast)
+autoplot(DE.stl)+
+  geom_line(col=c("#00868B"), size=1)+
+  labs(x="Tahun", 
+       title="Data Decompotition")
+```
+ *Data terindikasi Mempunya pola trend dan juga musiman, sehingga akan digunakan model SARIMA
+   
+9. Differencing dan pengujian stasioneritas
+```{r}
+DE.d1 <- diff(trans.DE, lag=1)
+plot.ts(DE.d1)
+```
+
+```{r}
+adf.test(DE.d1)
+```
+*Berdasarkan Uji Dickey-Fuller data setelah di differencing sudah stasioner
+
+10. Cek Plot ACF dan PACF data
+```{r}
+par(mfrow=c(1,2))
+Acf(DE.d1,lag.max= 100, main="ACF Data Ekspor Differencing 1")
+Pacf(DE.d1,lag.max= 100, main="ACF Data Ekspor Differencing 1")
+```
+11. Karena Data Musiman ada pada lag 12, maka dilakukan differencing pada lag 12 untuk differencing data 1
+```{r}
+par(mfrow=c(1,2))
+DEd1.d12 <- diff(DE.d1, lag= 12)
+Acf(DEd1.d10, lag.max=100)
+Pacf(DEd1.d10, lag.max=100)
+plot.ts(DEd1.d12)
+adf.test(DEd1.d12)
+```
+Model yang mungkin yaitu PACF cutoff di lag 1, ACF cutoff di lag 1 dan 2, musimannya cutoff after lag 12 (sehingga ada 3 kemungkinan dari arima awal. Sehingga kemungkinannya
+ARIMA(1,1,1)(0,1,1) atau ARIMA(1,1,1)(1,1,0) atau ARIMA(1,1,1)(1,1,1)
+ARIMA(1,1,2)(0,1,1) atau ARIMA(1,1,2)(1,1,0) atau ARIMA(1,1,2)(1,1,1)
+
+12. DIAGNOSTIC CHECK (Asumsi Cek)
+MOdel 1
+```{r}
+fit1 <- arima(DataEskporTS, order=c(1,1,1), seasonal=list(order=c(0,1,1),period=12), method="ML")
+fit1
+
+#1. Uji Kesignifikanan parameter: uji t
+coeftest(fit1)
+
+#2. Uji Pengujian residual apakah white Noise
+Box.test(fit1$residuals, type="Ljung")
+
+#3. Pengujian Residual apakah berdistribusi normal
+shapiro.test(fit1$residuals)
+
+```
+
+Model 2
+```{r}
+fit2 <- arima(DataEskporTS, order=c(1,1,1), seasonal=list(order=c(1,1,0),period=12), method="ML")
+fit2
+
+#1. Uji Kesignifikanan parameter: uji t
+coeftest(fit2)
+
+#2. Uji Pengujian residual apakah white Noise
+Box.test(fit2$residuals, type="Ljung")
+
+#3. Pengujian Residual apakah berdistribusi normal
+shapiro.test(fit2$residuals)
+```
+
+Model3
+```{r}
+fit3 <- arima(DataEskporTS, order=c(1,1,1), seasonal=list(order=c(1,1,1),period=12), method="ML")
+fit3
+
+#1. Uji Kesignifikanan parameter: uji t
+coeftest(fit3)
+
+#2. Uji Pengujian residual apakah white Noise
+Box.test(fit3$residuals, type="Ljung")
+
+#3. Pengujian Residual apakah berdistribusi normal
+shapiro.test(fit3$residuals)
+```
+
+Model4
+```{r}
+fit4 <- arima(DataEskporTS, order=c(1,1,2), seasonal=list(order=c(0,1,1),period=12), method="ML")
+fit4
+
+#1. Uji Kesignifikanan parameter: uji t
+coeftest(fit4)
+
+#2. Uji Pengujian residual apakah white Noise
+Box.test(fit4$residuals, type="Ljung")
+
+#3. Pengujian Residual apakah berdistribusi normal
+shapiro.test(fit4$residuals)
+```
+
+Model 5
+```{r}
+fit5 <- arima(DataEskporTS, order=c(1,1,2), seasonal=list(order=c(1,1,0),period=12), method="ML")
+fit5
+
+#1. Uji Kesignifikanan parameter: uji t
+coeftest(fit5)
+
+#2. Uji Pengujian residual apakah white Noise
+Box.test(fit5$residuals, type="Ljung")
+
+#3. Pengujian Residual apakah berdistribusi normal
+shapiro.test(fit5$residuals)
+```
+
+Model6
+```{r}
+fit6 <- arima(DataEskporTS, order=c(1,1,2), seasonal=list(order=c(1,1,1),period=12), method="ML")
+fit6
+
+#1. Uji Kesignifikanan parameter: uji t
+coeftest(fit6)
+
+#2. Uji Pengujian residual apakah white Noise
+Box.test(fit6$residuals, type="Ljung")
+
+#3. Pengujian Residual apakah berdistribusi normal
+shapiro.test(fit6$residuals)
+```
+
+Model memenuhi semua asumsi, maka diambil model yang paling baik, yaitu dengan nilai AIC Terkecil
+Nilai AIC terkecil adalah Model 3
+
+Sehingga kita dapatkan model yang dipakai adalah SARIMA(1,1,1)(1,1,1)[12]
+
+13. FORECASTING
+```{r}
+Forecasting <- forecast(DataEskporTS, model=fit3, h=13)
+Forecasting
+plot.ts(Forecasting)
+```
+14. Visualisasi
+```{r}
+DataEskporTS %>%
+   autoplot()+
+   autolayer(Forecasting)+
+   autolayer(Forecasting$mean)
+```
+
+   
